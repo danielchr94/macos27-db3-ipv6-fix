@@ -2,84 +2,48 @@ import AppKit
 
 // macOS 27 DB3 IPv6 Fix
 // Lightweight menu bar app that toggles the IPv6 workaround for the macOS 27
-// developer beta 3 bug where Wi-Fi and utun tunnels advertise unusable IPv6,
-// stalling Chromium-based apps and similar (Chrome, Electron apps, Node tools).
+// developer beta 3 bug where Wi-Fi advertises unusable IPv6, stalling
+// Chromium-based apps and similar (Chrome, Electron apps, Node tools).
+//
+// The fix is simply disabling IPv6 on the Wi-Fi service. That setting is
+// persistent across reboots, so no background daemon is needed.
 
 let bundleID = "io.github.danielchr94.macos27db3ipv6fix"
-let plistPath = "/Library/LaunchDaemons/\(bundleID).plist"
-let appVersion = "1.0.0"
+let appVersion = "1.1.0"
 
-// Enable: disable IPv6 on Wi-Fi, install the route-cleanup script, load a root
-// LaunchDaemon that re-cleans the leaked utun IPv6 default routes every 60s.
+// Detect the Wi-Fi service name, fall back to "Wi-Fi". No admin needed.
+let wifiServiceSnippet = #"""
+WIFI_DEV=$(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $NF}')
+SVC=$(networksetup -listnetworkserviceorder | awk -v dev="$WIFI_DEV" '/^\([0-9]+\)/{name=substr($0,index($0,")")+2)} index($0,"Device: " dev ")"){print name; exit}')
+[ -z "$SVC" ] && SVC="Wi-Fi"
+"""#
+
+// Enable: remove any legacy daemon, then disable IPv6 on Wi-Fi (persistent).
 let enableScript = #"""
 #!/bin/bash
 set -e
-BUNDLE_ID="io.github.danielchr94.macos27db3ipv6fix"
+PLIST="/Library/LaunchDaemons/io.github.danielchr94.macos27db3ipv6fix.plist"
 SUPPORT_DIR="/Library/Application Support/macos27-db3-ipv6-fix"
-CLEAN_SCRIPT="$SUPPORT_DIR/ipv6-route-clean.sh"
-PLIST="/Library/LaunchDaemons/$BUNDLE_ID.plist"
-
-# 1. Disable IPv6 on the Wi-Fi network service
+if [ -f "$PLIST" ]; then launchctl bootout system "$PLIST" 2>/dev/null || true; rm -f "$PLIST"; fi
+rm -rf "$SUPPORT_DIR"
 WIFI_DEV=$(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $NF}')
-WIFI_SVC=$(networksetup -listnetworkserviceorder | awk -v dev="$WIFI_DEV" '/^\([0-9]+\)/{name=substr($0,index($0,")")+2)} index($0,"Device: " dev ")"){print name; exit}')
-[ -z "$WIFI_SVC" ] && WIFI_SVC="Wi-Fi"
-networksetup -setv6off "$WIFI_SVC"
-
-# 2. Install the route-cleanup script (deletes dead IPv6 default routes on utun tunnels)
-mkdir -p "$SUPPORT_DIR"
-cat > "$CLEAN_SCRIPT" <<'CLEAN'
-#!/bin/bash
-# Remove IPv6 default routes leaked onto utun tunnels by the macOS 27 db3 bug.
-netstat -rn -f inet6 2>/dev/null | awk '$1=="default" && $NF ~ /^utun/ {print $NF}' | sort -u | while read -r ifc; do
-  route -n delete -inet6 default -ifscope "$ifc" >/dev/null 2>&1
-done
-exit 0
-CLEAN
-chmod 755 "$CLEAN_SCRIPT"
-chown root:wheel "$CLEAN_SCRIPT"
-
-# 3. Install and load the auto-heal LaunchDaemon
-cat > "$PLIST" <<PLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>$BUNDLE_ID</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/bash</string>
-    <string>$CLEAN_SCRIPT</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>StartInterval</key><integer>60</integer>
-  <key>StandardErrorPath</key><string>/dev/null</string>
-</dict>
-</plist>
-PLISTEOF
-chown root:wheel "$PLIST"
-chmod 644 "$PLIST"
-
-launchctl bootout system "$PLIST" 2>/dev/null || true
-launchctl bootstrap system "$PLIST"
+SVC=$(networksetup -listnetworkserviceorder | awk -v dev="$WIFI_DEV" '/^\([0-9]+\)/{name=substr($0,index($0,")")+2)} index($0,"Device: " dev ")"){print name; exit}')
+[ -z "$SVC" ] && SVC="Wi-Fi"
+networksetup -setv6off "$SVC"
 exit 0
 """#
 
-// Disable: stop and remove the daemon, delete the support files, restore Wi-Fi
-// IPv6 to Automatic. Leaked utun routes clear on the next reboot.
+// Disable: remove any legacy daemon, then restore Wi-Fi IPv6 to Automatic.
 let disableScript = #"""
 #!/bin/bash
-BUNDLE_ID="io.github.danielchr94.macos27db3ipv6fix"
+PLIST="/Library/LaunchDaemons/io.github.danielchr94.macos27db3ipv6fix.plist"
 SUPPORT_DIR="/Library/Application Support/macos27-db3-ipv6-fix"
-PLIST="/Library/LaunchDaemons/$BUNDLE_ID.plist"
-
-launchctl bootout system "$PLIST" 2>/dev/null || true
-rm -f "$PLIST"
+if [ -f "$PLIST" ]; then launchctl bootout system "$PLIST" 2>/dev/null || true; rm -f "$PLIST"; fi
 rm -rf "$SUPPORT_DIR"
-
 WIFI_DEV=$(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $NF}')
-WIFI_SVC=$(networksetup -listnetworkserviceorder | awk -v dev="$WIFI_DEV" '/^\([0-9]+\)/{name=substr($0,index($0,")")+2)} index($0,"Device: " dev ")"){print name; exit}')
-[ -z "$WIFI_SVC" ] && WIFI_SVC="Wi-Fi"
-networksetup -setv6automatic "$WIFI_SVC"
+SVC=$(networksetup -listnetworkserviceorder | awk -v dev="$WIFI_DEV" '/^\([0-9]+\)/{name=substr($0,index($0,")")+2)} index($0,"Device: " dev ")"){print name; exit}')
+[ -z "$SVC" ] && SVC="Wi-Fi"
+networksetup -setv6automatic "$SVC"
 exit 0
 """#
 
@@ -99,8 +63,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuild(menu)
     }
 
+    // The fix is on when IPv6 is Off on the Wi-Fi service. Read-only, no admin.
     func isEnabled() -> Bool {
-        FileManager.default.fileExists(atPath: plistPath)
+        let script = wifiServiceSnippet + "\nnetworksetup -getinfo \"$SVC\" | grep -q '^IPv6: Off' && echo yes || echo no"
+        return runCapture("/bin/bash", ["-c", script]).contains("yes")
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -138,9 +104,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert()
         alert.messageText = enabling ? "Fix enabled" : "Fix disabled"
         alert.informativeText = enabling
-            ? "IPv6 was disabled on Wi-Fi and the auto-heal daemon is running. Chromium-based apps and similar should stop dropping now. Restart any that were open."
-            : "The daemon was removed and Wi-Fi IPv6 was set back to Automatic. Leaked routes clear on the next reboot."
+            ? "IPv6 is now disabled on Wi-Fi. This is the stable fix and it stays off across reboots. Quit and reopen any app that was already running (Chromium-based apps and similar) so it drops its dead connections."
+            : "Wi-Fi IPv6 was set back to Automatic (the macOS default)."
         alert.runModal()
+    }
+
+    // Run a small command, return stdout. Used for read-only state checks.
+    func runCapture(_ launchPath: String, _ args: [String]) -> String {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: launchPath)
+        proc.arguments = args
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = Pipe()
+        do { try proc.run() } catch { return "" }
+        proc.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     // Run a shell script as root via one native admin prompt.
@@ -193,10 +173,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert()
         alert.messageText = "macOS 27 DB3 IPv6 Fix \(appVersion)"
         alert.informativeText = """
-        macOS 27 developer beta 3 advertises IPv6 with no working route, which stalls apps that try IPv6 first - Chromium-based apps and similar (Chrome, Electron apps, Node tools). This tool disables IPv6 on Wi-Fi and runs a small background service that removes the dead IPv6 routes the OS keeps leaking onto its VPN tunnels.
+        macOS 27 developer beta 3 advertises IPv6 with no working route, which stalls apps that try IPv6 first - Chromium-based apps and similar (Chrome, Electron apps, Node tools).
 
-        Enable Fix - applies the workaround and keeps it healed across reboots.
-        Disable Fix - removes it and restores default IPv6 settings.
+        Enable Fix - disables IPv6 on your Wi-Fi service. That is the stable fix and it stays off across reboots.
+        Disable Fix - sets Wi-Fi IPv6 back to Automatic.
 
         This is a workaround for an Apple beta defect. Please also report it via Feedback Assistant.
         """

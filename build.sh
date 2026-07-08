@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="macOS 27 DB3 IPv6 Fix"
 BUNDLE_ID="io.github.danielchr94.macos27db3ipv6fix"
-VERSION="1.0.0"
+VERSION="1.1.0"
 BIN="mac27ipv6fix"
 
 APP="dist/$APP_NAME.app"

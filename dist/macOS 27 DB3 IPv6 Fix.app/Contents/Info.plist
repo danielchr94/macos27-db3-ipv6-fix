@@ -5,8 +5,8 @@
   <key>CFBundleName</key><string>macOS 27 DB3 IPv6 Fix</string>
   <key>CFBundleDisplayName</key><string>macOS 27 DB3 IPv6 Fix</string>
   <key>CFBundleIdentifier</key><string>io.github.danielchr94.macos27db3ipv6fix</string>
-  <key>CFBundleVersion</key><string>1.0.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleVersion</key><string>1.1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.1.0</string>
   <key>CFBundleExecutable</key><string>mac27ipv6fix</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
